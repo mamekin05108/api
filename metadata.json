@@ -1,0 +1,6 @@
+{
+  "name": "DRF API Proxy Simulator",
+  "description": "Django REST Framework (DRF) とReactを用いた、店番・顧客番号の入力から外部APIへのリクエスト送信、レスポンス表示までの流れをシミュレート・学習できるアプリです。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
