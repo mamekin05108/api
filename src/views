@@ -1,0 +1,90 @@
+# views.py
+import requests
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django.conf import settings
+from .serializers import CustomerQuerySerializer
+
+class ExternalApiProxyView(APIView):
+    """
+    画面（React等）から店番、顧客番号を受信し、
+    外部APIにリクエストJSONをPOSTして、レスポンスを返すView
+    """
+    
+    def post(self, request, *args, **kwargs):
+        # 1. 画面(React等)からの入力をSerializerでバリデーション
+        serializer = CustomerQuerySerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {"error": "入力チェックエラー", "details": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        # バリデーション済みのデータを取り出す
+        validated_data = serializer.validated_data
+        shop_id = validated_data.get("shop_id")
+        customer_id = validated_data.get("customer_id")
+        
+        # 2. 外部サーバー送信用にリクエストJSONを構築
+        # (必要に応じて、外部サーバーのキー名にマッピングします)
+        external_request_payload = {
+            "store_code": shop_id,
+            "customer_number": customer_id,
+            "source_system": "DRF-Proxy-Gateway",
+            # 必要に応じて追加パラメータや認証情報を設定
+        }
+        
+        # 3. 外部の秘密サーバーなどへHTTP POST送信
+        external_api_url = "https://api.external-service.com/v1/customer-lookup"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer YOUR_SECRET_API_KEY" # 暗号化キー等
+        }
+        
+        try:
+            # 外部サーバーへ実際にリクエストをPost (タイムアウトを5秒に設定)
+            response = requests.post(
+                external_api_url, 
+                json=external_request_payload, 
+                headers=headers,
+                timeout=5.0
+            )
+            
+            # レスポンスのJSONデータをパース
+            response_json = response.json()
+            
+            # 4. レスポンスJSONをReact等の画面へそのまま（あるいは整形して）返却する
+            return Response(
+                {
+                    "message": "外部連携が完了しました",
+                    "status_code": response.status_code,
+                    "external_data": response_json
+                },
+                status=status.HTTP_200_OK if response.ok else response.status_code
+            )
+            
+        except requests.exceptions.Timeout:
+            # タイムアウトエラーハンドリング
+            return Response(
+                {"error": "外部サーバーへのリクエストがタイムアウトしました。"},
+                status=status.HTTP_504_GATEWAY_TIMEOUT
+            )
+        except requests.exceptions.RequestException as e:
+            # 接続エラーやその他のHTTPエラーハンドリング
+            return Response(
+                {
+                    "error": "外部サーバーとの通信に失敗しました。",
+                    "details": str(e)
+                },
+                status=status.HTTP_502_BAD_GATEWAY
+            )
+        except ValueError:
+            # JSONデコードエラー
+            return Response(
+                {
+                    "error": "外部サーバーから無効なレスポンスが返されました。",
+                    "raw_response": response.text
+                },
+                status=status.HTTP_502_BAD_GATEWAY
+            )
