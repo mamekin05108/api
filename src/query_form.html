@@ -1,0 +1,210 @@
+{% load django_bootstrap5 %}
+{% load static %}
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>顧客クエリ テストツール</title>
+    
+    <!-- django-bootstrap5 の CSS をロード -->
+    {% bootstrap_css %}
+    
+    <!-- ローカルの Font Awesome をロード -->
+    <!-- ※ static 内の実際の配置パス（例: 'css/all.min.css' 等）に合わせて適宜変更してください -->
+    <link rel="stylesheet" href="{% static 'Hensai/fontawesome/css/all.min.css' %}">
+    
+    <style>
+        body {
+            background-color: #f4f6f9;
+        }
+        .navbar-brand i {
+            margin-right: 8px;
+        }
+        pre {
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            border-radius: 6px;
+            padding: 15px;
+            max-height: 450px;
+            overflow: auto;
+            font-family: 'Courier New', Courier, monospace;
+            border: 1px solid #333;
+        }
+        .card {
+            border: none;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+        .card-header {
+            background-color: #ffffff;
+            border-bottom: 1px solid #ebebeb;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ヘッダーバー -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container-fluid">
+            <span class="navbar-brand">
+                <i class="fa-solid fa-square-poll-horizontal text-info"></i>
+                DRF-Proxy Gateway: 開発テストツール
+            </span>
+        </div>
+    </nav>
+
+    <div class="container-fluid px-4">
+        <div class="row g-4">
+            
+            <!-- 左カラム: パラメータ入力フォーム -->
+            <div class="col-lg-5">
+                <div class="card h-100">
+                    <div class="card-header d-flex align-items-center">
+                        <i class="fa-solid fa-sliders text-primary me-2"></i>
+                        パラメータ入力
+                    </div>
+                    <div class="card-body">
+                        <form id="queryForm">
+                            {% csrf_token %}
+                            
+                            <!-- 店番入力 -->
+                            <div class="mb-3">
+                                <label for="shopId" class="form-label font-weight-bold">店番 (shop_id)</label>
+                                <div class="input-group">
+                                    <span class="input-group-text"><i class="fa-solid fa-shop"></i></span>
+                                    <input type="text" class="form-control" id="shopId" name="shop_id" placeholder="例: 123" required value="123">
+                                </div>
+                                <div class="form-text">外部API用に "store_code" へマッピングされます。</div>
+                            </div>
+                            
+                            <!-- 顧客番号入力 -->
+                            <div class="mb-3">
+                                <label for="customerId" class="form-label">顧客番号 (customer_id)</label>
+                                <div class="input-group">
+                                    <span class="input-group-text"><i class="fa-solid fa-user"></i></span>
+                                    <input type="text" class="form-control" id="customerId" name="customer_id" placeholder="例: 987654" required value="987654">
+                                </div>
+                                <div class="form-text">外部API用に "customer_number" へマッピングされます。</div>
+                            </div>
+                            
+                            <!-- 送信ボタン -->
+                            <button type="submit" class="btn btn-primary w-100 py-2 mt-2" id="submitBtn">
+                                <i class="fa-solid fa-file-export me-1"></i> JSON作成・ローカル保存
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 右カラム: 生成結果の表示領域 -->
+            <div class="col-lg-7">
+                <div class="card h-100">
+                    <div class="card-header d-flex align-items-center justify-content-between">
+                        <span>
+                            <i class="fa-solid fa-code text-success me-2"></i>
+                            生成されたリクエストJSON
+                        </span>
+                        <span class="badge bg-secondary" id="statusBadge">待機中</span>
+                    </div>
+                    <div class="card-body d-flex flex-column">
+                        <p class="text-muted small mb-2">
+                            <i class="fa-solid fa-circle-info me-1"></i>
+                            送信されたデータを元に、仲介用にマッピングしたリクエストボディを表示しています。
+                        </p>
+                        <div class="flex-grow-1 position-relative">
+                            <pre id="result">フォームからデータを送信してください。</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+    </div>
+
+    <!-- django-bootstrap5 の JS をロード -->
+    {% bootstrap_javascript %}
+
+    <!-- フロントエンド通信スクリプト -->
+    <script>
+        document.getElementById('queryForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const shopId = document.getElementById('shopId').value;
+            const customerId = document.getElementById('customerId').value;
+            const resultElement = document.getElementById('result');
+            const submitBtn = document.getElementById('submitBtn');
+            const statusBadge = document.getElementById('statusBadge');
+            
+            // ローディング状態に変更
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> 処理中...';
+            statusBadge.className = "badge bg-warning text-dark";
+            statusBadge.textContent = "処理中";
+            resultElement.textContent = "JSONデータを構築しています...";
+
+            try {
+                const response = await fetch('/Hensai/api/external-proxy/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: JSON.stringify({
+                        shop_id: shopId,
+                        customer_id: customerId
+                    })
+                });
+
+                const contentType = response.headers.get("content-type");
+                
+                if (response.ok && contentType && contentType.includes("application/json")) {
+                    // 成功（200 OK）
+                    const data = await response.json();
+                    resultElement.textContent = JSON.stringify(data, null, 4);
+                    statusBadge.className = "badge bg-success";
+                    statusBadge.textContent = `成功 (HTTP ${response.status})`;
+                } else {
+                    // エラー発生時（500や400など）
+                    statusBadge.className = "badge bg-danger";
+                    statusBadge.textContent = `エラー (HTTP ${response.status})`;
+                    
+                    if (contentType && contentType.includes("application/json")) {
+                        const data = await response.json();
+                        resultElement.textContent = JSON.stringify(data, null, 4);
+                    } else {
+                        const rawText = await response.text();
+                        resultElement.textContent = rawText;
+                    }
+                }
+
+            } catch (error) {
+                statusBadge.className = "badge bg-danger";
+                statusBadge.textContent = "通信例外";
+                resultElement.textContent = "システム連携エラーが発生しました:\n" + error;
+            } finally {
+                // ボタンを元に戻す
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fa-solid fa-file-export me-1"></i> JSON作成・ローカル保存';
+            }
+        });
+
+        // CSRFトークンをCookieから取得する関数
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+    </script>
+</body>
+</html>
